@@ -1,6 +1,15 @@
 # slidestomd (slides to markdown)
 A cli for converting PDFs into a markdown file of images with headers
 
+# Requirements
+- Python 3 (with pip)
+- pdftoppm (or any other pdf to image converter)
+
+Run the following to install the required python packages
+```
+$ pip install -r requirements.txt
+```
+
 # Usage
 <...>: Required args  
 [...]: Optional args
