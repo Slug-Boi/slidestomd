@@ -4,6 +4,7 @@ A cli for converting PDFs into a markdown file of images with headers
 # Requirements
 - Python 3 (with pip)
 - pdftoppm (or any other pdf to image converter)
+- Google tesseract CLI
 
 Run the following to install the required python packages
 ```
