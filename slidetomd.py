@@ -7,13 +7,13 @@ from pytesseract import Output
 
 threadStopper = False
 
-class bounding_box: 
+
+class bounding_box:
     def __init__(self, text, bounds, area):
         self.text = text
         self.bounds = bounds
         self.area = area
 
-        
 
 # Grab arguments from command line
 images_path = sys.argv[1]
@@ -32,28 +32,32 @@ except OSError:
 
 file = open(md_name, "w")
 
-# Start spinner 
+# Start spinner
 spinner = Halo(text='Scanning...', spinner='dots')
 spinner.start()
 
-for k in range (1, len(os.listdir(images_path))+1):
-
+for k in range(1, len(os.listdir(images_path))+1):
 
     # Filter out bounding boxes with confidence > 60% and text is not empty
     saved_boxes = []
 
     if k == 10:
         filenames = filenames[:-1]
+    if k == 100:
+        filenames = filenames[:-1]
 
-    boxes = pytesseract.image_to_data(Image.open(images_path+"/"+filenames+str(k)+".png"), output_type=Output.DICT)
+    boxes = pytesseract.image_to_data(Image.open(
+        images_path+"/"+filenames+str(k)+".png"), output_type=Output.DICT)
     # count all bounding boxes
     n_boxes = len(boxes['level'])
     for i in range(n_boxes):
         # Fall all bounding boxes with confidence > 60%
         if int(boxes['conf'][i]) > 60 and boxes['text'][i] != "":
-            (x, y, w, h) = (boxes['left'][i], boxes['top'][i], boxes['width'][i], boxes['height'][i]) 
+            (x, y, w, h) = (boxes['left'][i], boxes['top']
+                            [i], boxes['width'][i], boxes['height'][i])
             # Might need to be x+w, y+h not sure
-            saved_boxes.append(bounding_box(boxes['text'][i],(x, y, w, h), w*h))
+            saved_boxes.append(bounding_box(
+                boxes['text'][i], (x, y, w, h), w*h))
 
     # Variables to store the biggest box selection
     max_height = 0
@@ -84,13 +88,13 @@ for k in range (1, len(os.listdir(images_path))+1):
         prev_y = box.bounds[1]
         it += 1
 
-
     # Debug print to see the biggest box selection
     # print(ran, max_height)
     if ran != ():
-        header = " ".join([saved_boxes[i].text for i in range(ran[0], ran[1]+1)])
+        header = " ".join(
+            [saved_boxes[i].text for i in range(ran[0], ran[1]+1)])
         file.write(("# "+header+"\n"))
-    else: 
+    else:
         header = "ERROR - slide "+str(k)
         file.write(("# "+header+"\n"))
     file.write("!["+header+"](./"+images_path+"/"+filenames+str(k)+".png)\n\n")
@@ -98,8 +102,6 @@ for k in range (1, len(os.listdir(images_path))+1):
 file.close()
 spinner.stop()
 print("Markdown file created successfully:", md_name+".md")
-
-
 
 
 # Deprecated area code
