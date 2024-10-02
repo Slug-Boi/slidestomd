@@ -1,11 +1,12 @@
 import os
 import sys
+import threading
+from queue import Queue
+from multiprocessing.pool import ThreadPool as Pool
 from PIL import Image
 import pytesseract
 from halo import Halo
 from pytesseract import Output
-
-threadStopper = False
 
 
 class bounding_box:
@@ -14,37 +15,22 @@ class bounding_box:
         self.bounds = bounds
         self.area = area
 
+# worker tries to scan a single image and adds to a queue
+def worker(k, filenames, spacing, images_path):
+    try:
+        scanner(k, filenames, spacing, images_path)
+    except Exception as e:
+        print("Error on slide", k, e)
 
-# Grab arguments from command line
-images_path = sys.argv[1]
-md_name = sys.argv[2]+".md"
-spacing = 7
-if len(sys.argv) > 3:
-    spacing = int(sys.argv[3])
 
-filenames = os.listdir(images_path)[0].split("-")[0]+"-0"
-
-# Remove the file if it already exists
-try:
-    os.remove(md_name)
-except OSError:
-    pass
-
-file = open(md_name, "w")
-
-# Start spinner
-spinner = Halo(text='Scanning...', spinner='dots')
-spinner.start()
-
-for k in range(1, len(os.listdir(images_path))+1):
-
+def scanner(k, filenames, spacing, images_path):
     # Filter out bounding boxes with confidence > 60% and text is not empty
     saved_boxes = []
 
-    if k == 10:
+    if k >= 10:
         filenames = filenames[:-1]
-    if k == 100:
-        filenames = filenames[:-1]
+    if k >= 100:
+        filenames = filenames[:-2]
 
     boxes = pytesseract.image_to_data(Image.open(
         images_path+"/"+filenames+str(k)+".png"), output_type=Output.DICT)
@@ -64,7 +50,7 @@ for k in range(1, len(os.listdir(images_path))+1):
     if len(saved_boxes) < 4:
         file.write(("# ERROR - slide "+str(k)+"\n"))
         file.write("![](./"+images_path+"/"+filenames+str(k)+".png)\n\n")
-        continue
+        return
     cur_height = saved_boxes[0].bounds[3]
     prev_y = -sys.maxsize - 1
     ran = ()
@@ -99,6 +85,44 @@ for k in range(1, len(os.listdir(images_path))+1):
         file.write(("# "+header+"\n"))
     file.write("!["+header+"](./"+images_path+"/"+filenames+str(k)+".png)\n\n")
 
+
+# Grab arguments from command line
+images_path = sys.argv[1]
+md_name = sys.argv[2]+".md"
+spacing = 7
+if len(sys.argv) > 3:
+    spacing = int(sys.argv[3])
+
+filenames = os.listdir(images_path)[0].split("-")[0]+"-0"
+
+#TODO: probably use a mutexed list or maybe a linked list to store the writeable data
+
+
+# Remove the file if it already exists
+try:
+    os.remove(md_name)
+except OSError:
+    pass
+
+file = open(md_name, "w")
+
+# Start spinner
+spinner = Halo(text='Scanning...', spinner='dots')
+spinner.start()
+
+# Create threads list
+threads = []
+
+# https://stackoverflow.com/a/15144090
+# append threads to list and start them 
+for k in range(1, len(os.listdir(images_path))+1):
+    threads.append(threading.Thread(target=worker, args=(k, filenames, spacing, images_path)))
+    threads[-1].start()
+    
+# wait for all threads to finish                                            
+for t in threads:
+    t.join()
+    
 file.close()
 spinner.stop()
 print("Markdown file created successfully:", md_name+".md")
