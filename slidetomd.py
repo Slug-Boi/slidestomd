@@ -107,8 +107,8 @@ filenames = os.listdir(images_path)[0].split("-")[0]+"-0"
 amount = len(os.listdir(images_path))+1
 
 # Images to be written
-Headers = [None] * len()
-Images = [None] * len(filenames)
+Headers = [None] * amount
+Images = [None] * amount
 
 #TODO: probably use a mutexed list or maybe a linked list to store the writeable data
 
@@ -144,7 +144,7 @@ for i in range(1, amount):
 
 file.close()
 spinner.stop()
-print("Markdown file created successfully:", md_name+".md")
+print("Markdown file created successfully:", md_name)
 
 
 # Deprecated area code
