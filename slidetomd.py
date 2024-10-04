@@ -9,6 +9,8 @@ from halo import Halo
 from pytesseract import Output
 
 
+lock = threading.Lock()
+
 class bounding_box:
     def __init__(self, text, bounds, area):
         self.text = text
@@ -26,6 +28,7 @@ def worker(k, filenames, spacing, images_path):
 def scanner(k, filenames, spacing, images_path):
     # Filter out bounding boxes with confidence > 60% and text is not empty
     saved_boxes = []
+    global Headers, Images
 
     if k >= 10:
         filenames = filenames[:-1]
@@ -48,8 +51,10 @@ def scanner(k, filenames, spacing, images_path):
     # Variables to store the biggest box selection
     max_height = 0
     if len(saved_boxes) < 4:
-        file.write(("# ERROR - slide "+str(k)+"\n"))
-        file.write("![](./"+images_path+"/"+filenames+str(k)+".png)\n\n")
+        lock.acquire()
+        Headers[k] = (("# ERROR - slide "+str(k)+"\n"))
+        Images[k] = ("![](./"+images_path+"/"+filenames+str(k)+".png)\n\n")
+        lock.release()
         return
     cur_height = saved_boxes[0].bounds[3]
     prev_y = -sys.maxsize - 1
@@ -76,14 +81,18 @@ def scanner(k, filenames, spacing, images_path):
 
     # Debug print to see the biggest box selection
     # print(ran, max_height)
+
+    # Write to lists
+    lock.acquire()
     if ran != ():
         header = " ".join(
             [saved_boxes[i].text for i in range(ran[0], ran[1]+1)])
-        file.write(("# "+header+"\n"))
+        Headers[k] = (("# "+header+"\n"))
     else:
         header = "ERROR - slide "+str(k)
-        file.write(("# "+header+"\n"))
-    file.write("!["+header+"](./"+images_path+"/"+filenames+str(k)+".png)\n\n")
+        Headers[k] = (("# "+header+"\n"))
+    Images[k] = ("!["+header+"](./"+images_path+"/"+filenames+str(k)+".png)\n\n")
+    lock.release()
 
 
 # Grab arguments from command line
@@ -94,6 +103,12 @@ if len(sys.argv) > 3:
     spacing = int(sys.argv[3])
 
 filenames = os.listdir(images_path)[0].split("-")[0]+"-0"
+
+amount = len(os.listdir(images_path))+1
+
+# Images to be written
+Headers = [None] * len()
+Images = [None] * len(filenames)
 
 #TODO: probably use a mutexed list or maybe a linked list to store the writeable data
 
@@ -115,7 +130,7 @@ threads = []
 
 # https://stackoverflow.com/a/15144090
 # append threads to list and start them 
-for k in range(1, len(os.listdir(images_path))+1):
+for k in range(1, amount):
     threads.append(threading.Thread(target=worker, args=(k, filenames, spacing, images_path)))
     threads[-1].start()
     
@@ -123,6 +138,10 @@ for k in range(1, len(os.listdir(images_path))+1):
 for t in threads:
     t.join()
     
+for i in range(1, amount):
+    file.write(Headers[i])
+    file.write(Images[i])
+
 file.close()
 spinner.stop()
 print("Markdown file created successfully:", md_name+".md")
