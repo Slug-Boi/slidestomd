@@ -1,15 +1,18 @@
 import os
 import sys
 import threading
-from queue import Queue
-from multiprocessing.pool import ThreadPool as Pool
+# from queue import Queue
+# from multiprocessing.pool import ThreadPool as Pool TODO: Maybe change to this?
 from PIL import Image
 import pytesseract
 from halo import Halo
 from pytesseract import Output
+import io
+import string
 
 
 lock = threading.Lock()
+
 
 class bounding_box:
     def __init__(self, text, bounds, area):
@@ -18,6 +21,8 @@ class bounding_box:
         self.area = area
 
 # worker tries to scan a single image and adds to a queue
+
+
 def worker(k, filenames, spacing, images_path):
     try:
         scanner(k, filenames, spacing, images_path)
@@ -25,74 +30,80 @@ def worker(k, filenames, spacing, images_path):
         print("Error on slide", k, e)
 
 
-def scanner(k, filenames, spacing, images_path):
+def scanner(j, og_filenames, spacing, images_path):
     # Filter out bounding boxes with confidence > 60% and text is not empty
-    saved_boxes = []
-    global Headers, Images
+    filenames = og_filenames
 
-    if k >= 10:
-        filenames = filenames[:-1]
-    if k >= 100:
-        filenames = filenames[:-2]
+    for k in range(j, j+5):
+        saved_boxes = []
+        global Headers, Images
 
-    boxes = pytesseract.image_to_data(Image.open(
-        images_path+"/"+filenames+str(k)+".png"), output_type=Output.DICT)
-    # count all bounding boxes
-    n_boxes = len(boxes['level'])
-    for i in range(n_boxes):
-        # Fall all bounding boxes with confidence > 60%
-        if int(boxes['conf'][i]) > 60 and boxes['text'][i] != "":
-            (x, y, w, h) = (boxes['left'][i], boxes['top']
-                            [i], boxes['width'][i], boxes['height'][i])
-            # Might need to be x+w, y+h not sure
-            saved_boxes.append(bounding_box(
-                boxes['text'][i], (x, y, w, h), w*h))
+        # this is aweful and def should be changed but it works for now
+        if k >= 10:
+            filenames = og_filenames[:-1]
+        if k >= 100:
+            filenames = og_filenames[:-1]
+        
 
-    # Variables to store the biggest box selection
-    max_height = 0
-    if len(saved_boxes) < 4:
+        boxes = pytesseract.image_to_data(Image.open(
+            images_path+"/"+filenames+str(k)+".png"), output_type=Output.DICT)
+        # count all bounding boxes
+        n_boxes = len(boxes['level'])
+        for i in range(n_boxes):
+            # Fall all bounding boxes with confidence > 60%
+            if int(boxes['conf'][i]) > 60 and boxes['text'][i] != "":
+                (x, y, w, h) = (boxes['left'][i], boxes['top']
+                                [i], boxes['width'][i], boxes['height'][i])
+                # Might need to be x+w, y+h not sure
+                saved_boxes.append(bounding_box(
+                    boxes['text'][i], (x, y, w, h), w*h))
+
+        # Variables to store the biggest box selection
+        max_height = 0
+        if len(saved_boxes) < 4:
+            lock.acquire()
+            Headers[k] = (("# ERROR - slide "+str(k)+"\n"))
+            Images[k] = ("![](./"+images_path+"/"+filenames+str(k)+".png)\n\n")
+            lock.release()
+            return
+        cur_height = saved_boxes[0].bounds[3]
+        prev_y = -sys.maxsize - 1
+        ran = ()
+        start_pos = 0
+        it = 0
+
+        # for box in saved_boxes:
+        #     print(box.text, box.bounds)
+
+        # Loop to find the biggest box selection
+        for box in saved_boxes:
+            if prev_y > 0 and abs(box.bounds[1] - prev_y) < spacing:
+                if box.bounds[3] > cur_height:
+                    cur_height = box.bounds[3]
+            elif prev_y > 0 and abs(box.bounds[1] - prev_y) >= spacing:
+                if max_height < cur_height:
+                    ran = (start_pos, it-1)
+                    max_height = cur_height
+                cur_height = 0
+                start_pos = it
+            prev_y = box.bounds[1]
+            it += 1
+
+        # Debug print to see the biggest box selection
+        # print(ran, max_height)
+
+        # Write to lists
         lock.acquire()
-        Headers[k] = (("# ERROR - slide "+str(k)+"\n"))
-        Images[k] = ("![](./"+images_path+"/"+filenames+str(k)+".png)\n\n")
+        if ran != ():
+            header = " ".join(
+                [saved_boxes[i].text for i in range(ran[0], ran[1]+1)])
+            Headers[k] = (("# "+header+"\n"))
+        else:
+            header = "ERROR - slide "+str(k)
+            Headers[k] = (("# "+header+"\n"))
+        Images[k] = ("!["+header+"](./"+images_path +
+                     "/"+filenames+str(k)+".png)\n\n")
         lock.release()
-        return
-    cur_height = saved_boxes[0].bounds[3]
-    prev_y = -sys.maxsize - 1
-    ran = ()
-    start_pos = 0
-    it = 0
-
-    # for box in saved_boxes:
-    #     print(box.text, box.bounds)
-
-    # Loop to find the biggest box selection
-    for box in saved_boxes:
-        if prev_y > 0 and abs(box.bounds[1] - prev_y) < spacing:
-            if box.bounds[3] > cur_height:
-                cur_height = box.bounds[3]
-        elif prev_y > 0 and abs(box.bounds[1] - prev_y) >= spacing:
-            if max_height < cur_height:
-                ran = (start_pos, it-1)
-                max_height = cur_height
-            cur_height = 0
-            start_pos = it
-        prev_y = box.bounds[1]
-        it += 1
-
-    # Debug print to see the biggest box selection
-    # print(ran, max_height)
-
-    # Write to lists
-    lock.acquire()
-    if ran != ():
-        header = " ".join(
-            [saved_boxes[i].text for i in range(ran[0], ran[1]+1)])
-        Headers[k] = (("# "+header+"\n"))
-    else:
-        header = "ERROR - slide "+str(k)
-        Headers[k] = (("# "+header+"\n"))
-    Images[k] = ("!["+header+"](./"+images_path+"/"+filenames+str(k)+".png)\n\n")
-    lock.release()
 
 
 # Grab arguments from command line
@@ -107,10 +118,10 @@ filenames = os.listdir(images_path)[0].split("-")[0]+"-0"
 amount = len(os.listdir(images_path))+1
 
 # Images to be written
-Headers = [None] * amount
-Images = [None] * amount
+Headers = [""] * amount
+Images = [""] * amount
 
-#TODO: probably use a mutexed list or maybe a linked list to store the writeable data
+# TODO: probably use a mutexed list or maybe a linked list to store the writeable data
 
 
 # Remove the file if it already exists
@@ -119,7 +130,9 @@ try:
 except OSError:
     pass
 
-file = open(md_name, "w")
+file = io.FileIO(md_name, "w")
+
+bufferedWriter = io.BufferedWriter(file, buffer_size=100000)
 
 # Start spinner
 spinner = Halo(text='Scanning...', spinner='dots')
@@ -129,20 +142,24 @@ spinner.start()
 threads = []
 
 # https://stackoverflow.com/a/15144090
-# append threads to list and start them 
-for k in range(1, amount):
-    threads.append(threading.Thread(target=worker, args=(k, filenames, spacing, images_path)))
+# append threads to list and start them
+for k in range(1, amount, 5):
+    threads.append(threading.Thread(
+        target=worker, args=(k, filenames, spacing, images_path)))
     threads[-1].start()
-    
-# wait for all threads to finish                                            
+
+# wait for all threads to finish
 for t in threads:
     t.join()
-    
-for i in range(1, amount):
-    file.write(Headers[i])
-    file.write(Images[i])
 
-file.close()
+for i in range(1, amount):
+    # if Headers[i] is None or Images[i] is None:
+    #     continue
+    print(Headers[i])
+    bufferedWriter.write(str.encode(Headers[i]))
+    bufferedWriter.write(str.encode(Images[i]))
+
+bufferedWriter.flush()
 spinner.stop()
 print("Markdown file created successfully:", md_name)
 
